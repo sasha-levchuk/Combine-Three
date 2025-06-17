@@ -16,9 +16,11 @@ config/features=PackedStringArray("4.4", "GL Compatibility")
 
 [display]
 
-window/size/viewport_width=800
-window/size/viewport_height=600
+window/size/viewport_width=540
+window/size/viewport_height=540
 window/size/initial_position=Vector2i(-64, -64)
+window/stretch/mode="viewport"
+window/stretch/aspect="keep_width"
 
 [editor]
 

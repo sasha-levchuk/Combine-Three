@@ -187,10 +187,10 @@ func print_state():
 [node name="Main" type="Node2D"]
 
 [node name="ButtonReset" type="Button" parent="."]
-offset_left = 628.0
-offset_top = 458.0
-offset_right = 752.0
-offset_bottom = 489.0
+offset_left = 14.0
+offset_top = 554.0
+offset_right = 138.0
+offset_bottom = 585.0
 text = "reset"
 
 [node name="ButtonPrintState" type="Button" parent="."]
@@ -226,7 +226,7 @@ offset_bottom = 164.0
 text = "respawn"
 
 [node name="Grid" type="Node2D" parent="."]
-position = Vector2(0, 600)
+position = Vector2(0, 540)
 scale = Vector2(1, -1)
 script = SubResource("GDScript_7dm0k")
 scenes = Array[PackedScene]([ExtResource("1_h2yge"), ExtResource("1_0xm2m"), ExtResource("3_h2yge"), ExtResource("4_1bvp3")])

@@ -1,7 +1,7 @@
-[gd_scene load_steps=5 format=3 uid="uid://vtnpkalxhk1"]
+[gd_scene load_steps=5 format=3 uid="uid://6gj5cqbmkd7x"]
 
-[ext_resource type="StyleBox" uid="uid://dvfwynnyu5t66" path="res://button_stylebox.tres" id="1_epqao"]
-[ext_resource type="Script" uid="uid://l4q0qo0dc1wo" path="res://tiles/Tile.gd" id="1_mhqsb"]
+[ext_resource type="StyleBox" uid="uid://dvfwynnyu5t66" path="res://button_stylebox.tres" id="1_bb6jk"]
+[ext_resource type="Script" uid="uid://l4q0qo0dc1wo" path="res://tiles/Tile.gd" id="2_nvky4"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_epqao"]
 
@@ -12,11 +12,11 @@ bg_color = Color(1, 1, 1, 0.25098)
 clip_children = 2
 offset_right = 128.0
 offset_bottom = 128.0
-theme_override_styles/focus = ExtResource("1_epqao")
-theme_override_styles/hover = ExtResource("1_epqao")
-theme_override_styles/pressed = ExtResource("1_epqao")
-theme_override_styles/normal = ExtResource("1_epqao")
-script = ExtResource("1_mhqsb")
+theme_override_styles/focus = ExtResource("1_bb6jk")
+theme_override_styles/hover = ExtResource("1_bb6jk")
+theme_override_styles/pressed = ExtResource("1_bb6jk")
+theme_override_styles/normal = ExtResource("1_bb6jk")
+script = ExtResource("2_nvky4")
 metadata/_custom_type_script = "uid://l4q0qo0dc1wo"
 
 [node name="Color" type="Panel" parent="."]
