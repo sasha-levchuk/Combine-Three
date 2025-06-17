@@ -1,160 +1,247 @@
-[gd_scene load_steps=5 format=3 uid="uid://drjvpsepkhyqj"]
+[gd_scene load_steps=6 format=3 uid="uid://drjvpsepkhyqj"]
 
-[ext_resource type="PackedScene" uid="uid://cakkjmb01b3cp" path="res://tile.tscn" id="1_l7wyt"]
+[ext_resource type="PackedScene" uid="uid://d08j3muldqfjd" path="res://tiles/green.tscn" id="1_0xm2m"]
+[ext_resource type="PackedScene" uid="uid://bt1ni5uvii8y4" path="res://tiles/red.tscn" id="1_h2yge"]
+[ext_resource type="PackedScene" uid="uid://b8n38l8cvydts" path="res://tiles/blue.tscn" id="3_h2yge"]
+[ext_resource type="PackedScene" uid="uid://d06i66vxv1826" path="res://tiles/yellow.tscn" id="4_1bvp3"]
 
-[sub_resource type="GDScript" id="GDScript_1wurf"]
-resource_name = "main"
-script/source = "extends Control
+[sub_resource type="GDScript" id="GDScript_7dm0k"]
+resource_name = "Grid"
+script/source = "extends Node2D
+const START: Vector2i = Vector2i(0,0)
+const SIZE: Vector2i = Vector2i(8, 8)
+@export var scenes: Array[PackedScene]
 
-
-enum Colors { Red, Green }
-var ANIM_TIME = 0.2
-var column = [ 0,0,1,0,1,1 ] # масив з якого створюватимемо плитки в колонці
-var tile_scene = preload(\"res://tile.tscn\") # берем зразок плитки
-var GRID_GAP = 10 # відстань між плитками
-var tiles = []
-var tween_queue = []
-var mobile_scale = 1
-@onready var SCREEN_BOTTOM = DisplayServer.window_get_size().y # низ екрана
-@onready var GRID_SIZE = tile_scene.instantiate().size.x # розмір плиток
-
-
-func _ready(): # тут починається гра
-	if OS.has_feature(\"web_android\"):
-		mobile_scale = 2
-		GRID_SIZE *= mobile_scale
-		GRID_GAP *= mobile_scale
-	for i in column.size(): # ідемо циклом по кожному елементі в масиві
-		var tile = tile_scene.instantiate() #створює плитку
-		var color = \"RED\" if column[i]==0 else \"GREEN\"
-		tile.size *= mobile_scale
-		tile.row = i
-		tile.color = color
-		tile.text = color #ставить текст плитки
-		tile.position = calc_position( i )
-		add_child( tile ) #додає плитку в дерево об'єктів
-		tiles.push_back( tile )
-
-
-func on_tile_moved( tile, destination ):
-	var row = tile.row
-	var color = tile.color
-	prints(\"moving tile \", row, 'color:', color, 'to', destination )
-	if destination not in range(0,tiles.size()):
-		print(\"forbidden move\")
-		return
-	if color==tiles[destination].color:
-		print('same color')
-		return
-	var direction = 1 if destination>row else -1
-	prints('start', destination, 'direction', direction)
-	var streak = 1
-	var end = destination + direction
-	while end in range(0,tiles.size()) and tiles[end].color == color:
-		prints('next id', end, 'has color:', tiles[end].color, 'streak:', streak, )
-		streak += 1
-		end += direction
-	end -= direction  # backtrack a bit, as we counted one too many
-	if streak < 3: return
-	prints( \"found a streak of\", streak, \"starting at:\", destination, ', ending at:', end )
-	var second_tile = tiles[ destination ]
-	tiles[ tile.row ] = second_tile
-	tiles[ destination ] = tile
-	second_tile.row = tile.row
-	create_tween().tween_property( tile, 'position', calc_position(destination), ANIM_TIME )
-	var tween = create_tween()
-	tween.tween_property( second_tile, 'position', calc_position(tile.row), ANIM_TIME )
-	tween.finished.connect(func():
-		var streak_bottom = min(destination,end)
-		prints('removing streak from', streak_bottom )
-		for i in streak:
-			var matched_tile = tiles.pop_at(streak_bottom)
-			prints('popping tile', i, 'color', matched_tile.color)
-			var tween2 = create_tween()
-			tween2.tween_property( matched_tile, 'scale', Vector2.ZERO, ANIM_TIME )
-			tween2.finished.connect( func():matched_tile.queue_free())
-#		for i in range(destination+1, tiles.size()):
-#			tiles[i].position.y += ( GRID_SIZE + GRID_GAP ) * streak
-		print(tiles.map(func(this_tile): return this_tile.color))
-	)
-
-
-func calc_position( i ):
-	# задати положення плитки, відступивши 10 пікс зліва і знизу екрана
-	# відступити вверх на стільки клітинок, який номер в масиві
-	return Vector2( GRID_GAP, SCREEN_BOTTOM - (i+1) * ( GRID_GAP + GRID_SIZE ) )
-
-
-func play_next_tween():
-	print('finished')
-	if true: return
-	if tween_queue.size() == 0: return
-	for callable in tween_queue.pop_front():
-		callable.Call()
-"
-
-[sub_resource type="GDScript" id="GDScript_c442r"]
-script/source = "extends Polygon2D
+var tiles: Dictionary[Vector2i, Tile]
+var dragged_tile: Tile
+var where_from: Vector2i
+var matches: Array[Vector2i]
+var tiles_left_to_respawn: int
+var deferred_queue: Array[Callable]
+@onready var advance := %AdvanceButton
+@onready var tilesize := Vector2(64,64)
 
 
 func _ready():
-	if not OS.has_feature(\"movie\"): queue_free()
-	visible = true
+	populate_grid()
 
 
-func _process(_delta):
-	position = get_global_mouse_position()
+func reset_grid():
+	for coord in tiles:
+		tiles[coord].queue_free()
+	tiles.clear()
+	populate_grid()
+
+
+func populate_grid():
+	for row in SIZE.y:
+		for col in SIZE.x:
+			var coord := Vector2i(col, row)
+			var type : int
+			while true:
+				type = randi() % Tile.TYPES.size()
+				if (find_matches(coord, type, Vector2i(-1, 0)).size() < 2 
+				and find_matches(coord, type, Vector2i(0, -1)).size() < 2 ):
+					break
+			spawn_tile( coord, type )
+
+
+func spawn_tile( coord: Vector2i, type := randi()%Tile.TYPES.size() ):
+	var tile: Tile = scenes[type].instantiate()
+	tile.position = Vector2(coord) * tilesize
+	tile.drag_started.connect( _on_tile_drag_started )
+	tile.drag_ended.connect( _on_tile_drag_ended )
+	add_child(tile)
+	tiles[coord] = tile
+
+
+func _on_tile_drag_started( tile: Tile ):
+	dragged_tile = tile
+	where_from = Vector2i( tile.position / tilesize )
+	prints('started dragging', tile, 'from', where_from)
+
+
+func _on_tile_drag_ended(direction: Vector2i):
+	var where_to := where_from + direction
+	if not is_in_bounds( where_to ):
+		dragged_tile.move(where_from)
+		return 
+	prints('ended dragging')
+	await swap(where_from, where_to)
+	matches.clear()
+	find_matches_3_axes(where_to, direction)
+	find_matches_3_axes(where_from, Vector2i.ZERO - direction)
+	while matches:
+		await get_tree().create_timer(0.2).timeout
+		respawn()
+		swipe_down()
+		await get_tree().create_timer(0.2).timeout
+		matches.clear()
+		find_matches_on_board()
+		if not matches:
+			break
+		var rebuilt: Array[Vector2i]
+		for coord in matches:
+			if tiles.has(coord):
+				rebuilt.append(coord)
+				tiles[coord].queue_free()
+				tiles.erase(coord)
+		matches = rebuilt
+
+
+func find_matches_3_axes(coord: Vector2i, direction: Vector2i):
+	var type := tiles[coord].type
+	var matches_along := find_matches(coord, type, direction)
+	var flipped := Vector2i(direction.y, direction.x)
+	var matches_ortho := find_matches(coord, type, Vector2i.ZERO - flipped)
+	matches_ortho.append_array( find_matches(coord, type, flipped) )
+	var result: Array[Vector2i]
+	if matches_along.size() > 1:
+		result.append_array(matches_along)
+	if matches_ortho.size() > 1:
+		result.append_array(matches_ortho)
+	if result:
+		result.append(coord)
+		matches.append_array(result)
+		for c in result:
+			tiles[c].queue_free()
+			tiles.erase(c)
+
+
+func find_matches(coord, type, offset) -> Array[Vector2i]:
+	var result: Array[Vector2i]
+	while true:
+		coord += offset
+		if tiles.has(coord) and tiles[coord].type==type:
+			result.append(coord)
+		else:
+			return result
+	return []
+
+
+func swap( origin: Vector2i, destination: Vector2i ) -> Signal:
+	tiles[origin] = tiles[destination].move(origin)
+	tiles[destination] = dragged_tile.move(destination)
+	return dragged_tile.animation_ended
+
+
+func is_in_bounds(v: Vector2i) -> bool:
+	return START.x<=v.x and v.x<SIZE.x and START.y<=v.y and v.y<SIZE.y
+
+
+func find_matches_on_board():
+	for coord in tiles:
+		var type := tiles[coord].type
+		var hor_matches := find_matches(coord, type, Vector2i(1, 0))
+		hor_matches.append_array( find_matches(coord, type, Vector2i(-1, 0)))
+		if hor_matches.size()>1:
+			matches.append_array(hor_matches)
+			matches.append(coord)
+		var ver_matches := find_matches(coord, type, Vector2i(0,1))
+		ver_matches.append_array( find_matches(coord, type, Vector2i(0, -1)))
+		if ver_matches.size()>1:
+			matches.append_array(ver_matches)
+			matches.append(coord)
+
+
+func swipe_down():
+	print('swiping down')
+	var rebuilt_tiles: Dictionary[Vector2i, Tile]
+	for coord in tiles:
+		var offset := Vector2i.ZERO
+		var coord_below := coord + Vector2i(0, -1)
+		while coord_below.y >= 0:
+			if not tiles.has(coord_below):
+				offset += Vector2i(0, -1)
+				prints('found a hole under', coord)
+			coord_below += Vector2i(0, -1)
+		rebuilt_tiles[coord+offset] = tiles[coord].move(coord+offset)
+		prints('swiping tile', coord, 'to', coord+offset)
+	tiles = rebuilt_tiles
+	print_state()
+
+
+func respawn():
+	for coord in matches:
+		var y = SIZE.y
+		while tiles.has( Vector2i(coord.x, y) ):
+			y += 1
+		spawn_tile( Vector2i(coord.x, y) )
+
+
+func print_state():
+	print(' ')
+	print('grid state:')
+	var s := ''
+	for y in SIZE.y:
+		for x in SIZE.x:
+			var v := Vector2i(x,SIZE.y-y-1)
+			if tiles.has(v):
+				s += (Tile.TYPES.keys()[tiles[v].type]).left(1)
+			else:
+				s += '-'
+		s += '\\n'
+	print(s)
 "
 
-[sub_resource type="GDScript" id="GDScript_38kav"]
-script/source = "extends Polygon2D
+[node name="Main" type="Node2D"]
 
+[node name="ButtonReset" type="Button" parent="."]
+offset_left = 628.0
+offset_top = 458.0
+offset_right = 752.0
+offset_bottom = 489.0
+text = "reset"
 
-func _ready():
-	if not OS.has_feature(\"movie\"): queue_free()
-
-
-func _process(_delta):
-	position = get_global_mouse_position()
-
-
-func _input(event):
-	if event is InputEventMouseButton:
-		visible = event.pressed
-"
-
-[node name="Main" type="Control"]
-layout_mode = 3
-anchors_preset = 0
-script = SubResource("GDScript_1wurf")
-metadata/_edit_lock_ = true
-
-[node name="Tile" parent="." instance=ExtResource("1_l7wyt")]
+[node name="ButtonPrintState" type="Button" parent="."]
 visible = false
-layout_mode = 1
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -40.0
-offset_top = -40.0
-offset_right = 40.0
-offset_bottom = 40.0
-grow_horizontal = 2
-grow_vertical = 2
+offset_left = 628.0
+offset_top = 489.0
+offset_right = 752.0
+offset_bottom = 520.0
+text = "print state"
 
-[node name="cursor" type="Polygon2D" parent="."]
+[node name="ButtonMatch" type="Button" parent="."]
 visible = false
-scale = Vector2(2, 2)
-polygon = PackedVector2Array(0, 0, 9, 5, 6, 7, 4, 10)
-script = SubResource("GDScript_c442r")
-metadata/_edit_lock_ = true
+offset_left = 662.0
+offset_top = 71.0
+offset_right = 786.0
+offset_bottom = 102.0
+text = "match"
 
-[node name="click" type="Polygon2D" parent="."]
+[node name="ButtonSwipe" type="Button" parent="."]
 visible = false
-scale = Vector2(2, 2)
-color = Color(1, 1, 1, 0.501961)
-polygon = PackedVector2Array(-5, -4, -4, -5, 0, -6, 4, -5, 5, -4, 6, 0, 5, 4, 4, 5, 0, 6, -4, 5, -5, 4, -6, 0)
-script = SubResource("GDScript_38kav")
-metadata/_edit_lock_ = true
+offset_left = 662.0
+offset_top = 102.0
+offset_right = 786.0
+offset_bottom = 133.0
+text = "swipe"
+
+[node name="ButtonRespawn" type="Button" parent="."]
+visible = false
+offset_left = 662.0
+offset_top = 133.0
+offset_right = 786.0
+offset_bottom = 164.0
+text = "respawn"
+
+[node name="Grid" type="Node2D" parent="."]
+position = Vector2(0, 600)
+scale = Vector2(1, -1)
+script = SubResource("GDScript_7dm0k")
+scenes = Array[PackedScene]([ExtResource("1_h2yge"), ExtResource("1_0xm2m"), ExtResource("3_h2yge"), ExtResource("4_1bvp3")])
+
+[node name="AdvanceButton" type="Button" parent="."]
+unique_name_in_owner = true
+visible = false
+offset_left = 628.0
+offset_top = 520.0
+offset_right = 752.0
+offset_bottom = 551.0
+text = "advance"
+
+[connection signal="pressed" from="ButtonReset" to="Grid" method="reset_grid"]
+[connection signal="pressed" from="ButtonPrintState" to="Grid" method="print_state"]
+[connection signal="pressed" from="ButtonMatch" to="Grid" method="clear_matches"]
+[connection signal="pressed" from="ButtonSwipe" to="Grid" method="swipe_down"]
+[connection signal="pressed" from="ButtonRespawn" to="Grid" method="respawn"]

@@ -1,0 +1,14 @@
+[gd_resource type="Resource" load_steps=2 format=3 uid="uid://b36ifhindnd0u"]
+
+[sub_resource type="GDScript" id="GDScript_45hv5"]
+resource_name = "DB"
+script/source = "enum TYPE { RED, GREEN }
+@export var COLORS: Dictionary[TYPE, Color]
+"
+
+[resource]
+script = SubResource("GDScript_45hv5")
+COLORS = Dictionary[int, Color]({
+0: Color(0.858824, 0.192157, 0.137255, 1),
+1: Color(0.232, 0.58, 0.116, 1)
+})
