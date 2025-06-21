@@ -3,7 +3,7 @@
 [ext_resource type="PackedScene" uid="uid://vtnpkalxhk1" path="res://tiles/_base.tscn" id="1_jb3gx"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_0eu2r"]
-bg_color = Color(0.733659, 0.645569, 0.23801, 1)
+bg_color = Color(0.8, 0.618133, 0.304, 1)
 
 [node name="Button" instance=ExtResource("1_jb3gx")]
 offset_left = -32.0

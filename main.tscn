@@ -15,7 +15,7 @@ const SIZE: Vector2i = Vector2i(8, 8)
 var tiles: Dictionary[Vector2i, Tile]
 var dragged_tile: Tile
 var where_from: Vector2i
-var matches: Array[Vector2i]
+#var matches: Array[Vector2i]
 var tiles_left_to_respawn: int
 var deferred_queue: Array[Callable]
 @onready var advance := %AdvanceButton
@@ -46,13 +46,14 @@ func populate_grid():
 			spawn_tile( coord, type )
 
 
-func spawn_tile( coord: Vector2i, type := randi()%Tile.TYPES.size() ):
+func spawn_tile( coord: Vector2i, type := randi()%Tile.TYPES.size() )->Tile:
 	var tile: Tile = scenes[type].instantiate()
 	tile.position = Vector2(coord) * tilesize
 	tile.drag_started.connect( _on_tile_drag_started )
 	tile.drag_ended.connect( _on_tile_drag_ended )
 	add_child(tile)
 	tiles[coord] = tile
+	return tile
 
 
 func _on_tile_drag_started( tile: Tile ):
@@ -64,48 +65,53 @@ func _on_tile_drag_started( tile: Tile ):
 func _on_tile_drag_ended(direction: Vector2i):
 	var where_to := where_from + direction
 	if not is_in_bounds( where_to ):
-		dragged_tile.move(where_from)
+		dragged_tile.move( where_from )
 		return 
-	prints('ended dragging')
-	await swap(where_from, where_to)
-	matches.clear()
-	find_matches_3_axes(where_to, direction)
-	find_matches_3_axes(where_from, Vector2i.ZERO - direction)
-	while matches:
-		await get_tree().create_timer(0.2).timeout
-		respawn()
-		swipe_down()
-		await get_tree().create_timer(0.2).timeout
-		matches.clear()
-		find_matches_on_board()
-		if not matches:
-			break
-		var rebuilt: Array[Vector2i]
-		for coord in matches:
-			if tiles.has(coord):
-				rebuilt.append(coord)
-				tiles[coord].queue_free()
-				tiles.erase(coord)
-		matches = rebuilt
+	await swap(where_from, where_to, dragged_tile)
+	if tiles[where_from].type == tiles[where_to].type:
+		swap(where_to, where_from, dragged_tile)
+		return
+	
+	var holes: Array[Vector2i]
+	for coord in [where_from, where_to]:
+		direction = -direction
+		var matches := find_matches_3_axes(coord, tiles[coord].type, direction)
+		if matches:
+			matches.append(coord)
+			holes.append_array(matches)
+			for coord2 in matches:
+				erase(coord2)
+	if not holes:
+		swap(where_to, where_from, dragged_tile)
+		return
+	
+	while holes:
+		respawn_from_array(holes)
+		await swipe_down(holes)
+		holes = find_matches_on_board()
 
 
-func find_matches_3_axes(coord: Vector2i, direction: Vector2i):
-	var type := tiles[coord].type
-	var matches_along := find_matches(coord, type, direction)
-	var flipped := Vector2i(direction.y, direction.x)
-	var matches_ortho := find_matches(coord, type, Vector2i.ZERO - flipped)
-	matches_ortho.append_array( find_matches(coord, type, flipped) )
-	var result: Array[Vector2i]
-	if matches_along.size() > 1:
-		result.append_array(matches_along)
-	if matches_ortho.size() > 1:
-		result.append_array(matches_ortho)
-	if result:
-		result.append(coord)
-		matches.append_array(result)
-		for c in result:
-			tiles[c].queue_free()
-			tiles.erase(c)
+func freeze( coord: Vector2i ):
+	prints('coord', coord, 'has been frozen')
+
+
+func erase( coord: Vector2i ):
+	tiles[coord].queue_free()
+	tiles.erase(coord)
+
+
+func find_matches_3_axes( coord: Vector2i,
+		type: int, direction: Vector2i ) -> Array[ Vector2i ]:
+	var result: Array[ Vector2i ]
+	var matches_along := find_matches( coord, type, direction )
+	if matches_along.size() >= 2:
+		result.append_array( matches_along )
+	var flipped := Vector2i( direction.y, direction.x )
+	var matches_ortho := find_matches( coord, type, Vector2i.ZERO - flipped )
+	matches_ortho.append_array( find_matches( coord, type, flipped ) )
+	if matches_ortho.size() >= 2:
+		result.append_array( matches_ortho )
+	return result
 
 
 func find_matches(coord, type, offset) -> Array[Vector2i]:
@@ -119,32 +125,90 @@ func find_matches(coord, type, offset) -> Array[Vector2i]:
 	return []
 
 
-func swap( origin: Vector2i, destination: Vector2i ) -> Signal:
+func swap( origin: Vector2i, destination: Vector2i, spare := tiles[origin] ) -> Signal:
 	tiles[origin] = tiles[destination].move(origin)
-	tiles[destination] = dragged_tile.move(destination)
-	return dragged_tile.animation_ended
+	tiles[destination] = spare.move(destination)
+	return spare.animation_ended
 
 
 func is_in_bounds(v: Vector2i) -> bool:
 	return START.x<=v.x and v.x<SIZE.x and START.y<=v.y and v.y<SIZE.y
 
 
-func find_matches_on_board():
+func find_matches_on_board() -> Array[Vector2i]:
+	var matches: Array[Vector2i]
 	for coord in tiles:
-		var type := tiles[coord].type
-		var hor_matches := find_matches(coord, type, Vector2i(1, 0))
-		hor_matches.append_array( find_matches(coord, type, Vector2i(-1, 0)))
+		var type := tiles[ coord ].type
+		var hor_matches := find_matches( coord, type, Vector2i(1, 0))
+		hor_matches.append_array( find_matches( coord, type, Vector2i(-1, 0)))
 		if hor_matches.size()>1:
-			matches.append_array(hor_matches)
-			matches.append(coord)
-		var ver_matches := find_matches(coord, type, Vector2i(0,1))
-		ver_matches.append_array( find_matches(coord, type, Vector2i(0, -1)))
+			matches.append_array( hor_matches )
+			matches.append( coord )
+		var ver_matches := find_matches( coord, type, Vector2i(0,1))
+		ver_matches.append_array( find_matches( coord, type, Vector2i(0, -1)))
 		if ver_matches.size()>1:
-			matches.append_array(ver_matches)
-			matches.append(coord)
+			matches.append_array( ver_matches )
+			matches.append( coord )
+	var rebuilt: Array[Vector2i]
+	for coord in matches:
+		if tiles.has(coord):
+			erase(coord)
+			rebuilt.append(coord)
+	return rebuilt
 
 
-func swipe_down():
+func swipe_down(holes: Array[Vector2i]) -> Signal:
+	var offsets: Dictionary[Vector2i, Vector2i]
+	for coord in holes: # calculate offsets for all tiles
+		while true:
+			coord += Vector2i(0,1)
+			if tiles.has(coord):
+				offsets[coord] = offsets[coord]-Vector2i(0,1) if offsets.has(coord) else Vector2i(0,-1)
+				freeze(coord)
+			elif not is_in_bounds(coord):
+				break
+	
+	var rebuilt_tiles: Dictionary[Vector2i, Tile]
+	var board_was_rebuilt: Signal
+	for coord in tiles:
+		if offsets.has(coord):
+			var new_coord := coord + offsets[coord]
+			rebuilt_tiles[new_coord] = tiles[coord].move(new_coord)
+			board_was_rebuilt = tiles[coord].animation_ended
+		else:
+			rebuilt_tiles[coord] = tiles[coord]
+	tiles = rebuilt_tiles
+	return board_was_rebuilt
+
+
+func swipe_down2(matches: Array[Vector2i])->Signal:
+	var has_been_swiped: Signal
+	var holes: Array[ Vector2i ]
+	var offsets: Dictionary[ Vector2i, Vector2i ]
+	for coord in matches: #calculate offsets before a swipe down
+		if tiles.has( coord ):
+			holes.append( coord )
+			tiles[coord].queue_free()
+			tiles.erase( coord )
+			while true:
+				coord += Vector2i(0, 1)
+				if not is_in_bounds( coord ):
+					break
+				offsets[coord] = offsets[coord] - Vector2i(0,1) if offsets.has(coord) else Vector2i(0,-1)
+	var rebuilt_tiles: Dictionary[Vector2i, Tile]
+	for coord in tiles:
+		if offsets.has(coord):
+			var offset := offsets[coord]
+			rebuilt_tiles[coord+offset] = tiles[coord].move( coord + offset )
+			has_been_swiped = rebuilt_tiles[coord+offset].animation_ended
+		else:
+			rebuilt_tiles[coord] = tiles[coord]
+	tiles = rebuilt_tiles
+	return has_been_swiped
+
+
+func swipe_down_no_array()->Signal:
+	var was_swept_down: Signal
 	print('swiping down')
 	var rebuilt_tiles: Dictionary[Vector2i, Tile]
 	for coord in tiles:
@@ -156,17 +220,19 @@ func swipe_down():
 				prints('found a hole under', coord)
 			coord_below += Vector2i(0, -1)
 		rebuilt_tiles[coord+offset] = tiles[coord].move(coord+offset)
+		was_swept_down = rebuilt_tiles[coord+offset].animation_ended
 		prints('swiping tile', coord, 'to', coord+offset)
 	tiles = rebuilt_tiles
 	print_state()
+	return was_swept_down
 
 
-func respawn():
-	for coord in matches:
-		var y = SIZE.y
-		while tiles.has( Vector2i(coord.x, y) ):
-			y += 1
-		spawn_tile( Vector2i(coord.x, y) )
+func respawn_from_array( coords: Array[ Vector2i ] ):
+	for coord in coords:
+		coord = Vector2i( coord.x, SIZE.y )
+		while tiles.has(coord):
+			coord += Vector2i(0,1)
+		spawn_tile(coord)
 
 
 func print_state():

@@ -57,5 +57,6 @@ func move_precise(new_pos: Vector2):
 		animation_ended.emit()
 	)
 
+
 func set_label(s: String):
 	%Label.text = s
