@@ -1,14 +1,22 @@
-[gd_resource type="Resource" load_steps=2 format=3 uid="uid://b36ifhindnd0u"]
+[gd_resource type="Resource" load_steps=6 format=3 uid="uid://b36ifhindnd0u"]
+
+[ext_resource type="PackedScene" uid="uid://bt1ni5uvii8y4" path="res://tiles/red.tscn" id="1_lfp02"]
+[ext_resource type="PackedScene" uid="uid://d08j3muldqfjd" path="res://tiles/green.tscn" id="2_pis7q"]
+[ext_resource type="PackedScene" uid="uid://b8n38l8cvydts" path="res://tiles/blue.tscn" id="3_0ngkv"]
+[ext_resource type="PackedScene" uid="uid://d06i66vxv1826" path="res://tiles/yellow.tscn" id="4_h034a"]
 
 [sub_resource type="GDScript" id="GDScript_45hv5"]
 resource_name = "DB"
-script/source = "enum TYPE { RED, GREEN }
-@export var COLORS: Dictionary[TYPE, Color]
+script/source = "#enum TYPE { RED, GREEN }
+#@export var COLORS: Dictionary[TYPE, Color]
+@export var tiles_scenes: Dictionary[Tile.TYPES, PackedScene]
 "
 
 [resource]
 script = SubResource("GDScript_45hv5")
-COLORS = Dictionary[int, Color]({
-0: Color(0.858824, 0.192157, 0.137255, 1),
-1: Color(0.232, 0.58, 0.116, 1)
+tiles_scenes = Dictionary[int, PackedScene]({
+0: ExtResource("1_lfp02"),
+1: ExtResource("2_pis7q"),
+2: ExtResource("3_0ngkv"),
+3: ExtResource("4_h034a")
 })

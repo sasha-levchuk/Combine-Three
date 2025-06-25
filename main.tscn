@@ -1,107 +1,144 @@
-[gd_scene load_steps=6 format=3 uid="uid://drjvpsepkhyqj"]
+[gd_scene load_steps=3 format=3 uid="uid://drjvpsepkhyqj"]
 
-[ext_resource type="PackedScene" uid="uid://d08j3muldqfjd" path="res://tiles/green.tscn" id="1_0xm2m"]
-[ext_resource type="PackedScene" uid="uid://bt1ni5uvii8y4" path="res://tiles/red.tscn" id="1_h2yge"]
-[ext_resource type="PackedScene" uid="uid://b8n38l8cvydts" path="res://tiles/blue.tscn" id="3_h2yge"]
-[ext_resource type="PackedScene" uid="uid://d06i66vxv1826" path="res://tiles/yellow.tscn" id="4_1bvp3"]
+[ext_resource type="Resource" uid="uid://b36ifhindnd0u" path="res://DB.tres" id="1_ig7tw"]
 
 [sub_resource type="GDScript" id="GDScript_7dm0k"]
 resource_name = "Grid"
 script/source = "extends Node2D
-const START: Vector2i = Vector2i(0,0)
-const SIZE: Vector2i = Vector2i(8, 8)
-@export var scenes: Array[PackedScene]
-
+const START: Vector2i = Vector2i(0, 0)
+const SIZE: Vector2i = Vector2i(7, 7)
 var tiles: Dictionary[Vector2i, Tile]
-var dragged_tile: Tile
-var where_from: Vector2i
-#var matches: Array[Vector2i]
-var tiles_left_to_respawn: int
-var deferred_queue: Array[Callable]
-@onready var advance := %AdvanceButton
-@onready var tilesize := Vector2(64,64)
+@export var db: Resource
 
 
 func _ready():
 	populate_grid()
 
 
-func reset_grid():
-	for coord in tiles:
-		tiles[coord].queue_free()
-	tiles.clear()
-	populate_grid()
-
-
 func populate_grid():
-	for row in SIZE.y:
-		for col in SIZE.x:
-			var coord := Vector2i(col, row)
-			var type : int
-			while true:
-				type = randi() % Tile.TYPES.size()
-				if (find_matches(coord, type, Vector2i(-1, 0)).size() < 2 
-				and find_matches(coord, type, Vector2i(0, -1)).size() < 2 ):
-					break
-			spawn_tile( coord, type )
+	#for row in SIZE.y:
+		#for col in SIZE.x:
+			#var coord := Vector2i(col, row + SIZE.y)
+			#var type := randi() % Tile.TYPES.size()
+			#while ( find_matches(coord, type, Vector2i(-1, 0)).size() > 1 or
+					#find_matches(coord, type, Vector2i(0, -1)).size() > 1 ):
+				#type = randi() % Tile.TYPES.size()
+			#tiles[coord] = spawn_tile( coord, type )
+	swipe_and_respawn().connect(board_check)
+	print_state()
 
 
 func spawn_tile( coord: Vector2i, type := randi()%Tile.TYPES.size() )->Tile:
-	var tile: Tile = scenes[type].instantiate()
-	tile.position = Vector2(coord) * tilesize
-	tile.drag_started.connect( _on_tile_drag_started )
-	tile.drag_ended.connect( _on_tile_drag_ended )
-	add_child(tile)
-	tiles[coord] = tile
+	var tile: Tile = db.tiles_scenes[type].instantiate()
+	tile.position = Vector2( coord ) * Tile.SIZE
+	tile.dragged.connect( _on_tile_dragged )
+	add_child( tile )
 	return tile
 
 
-func _on_tile_drag_started( tile: Tile ):
-	dragged_tile = tile
-	where_from = Vector2i( tile.position / tilesize )
-	prints('started dragging', tile, 'from', where_from)
+func _on_tile_dragged( start: Vector2i, direction: Vector2i, ):
+	var dest := start + direction
+	if is_out_of_bounds( dest ) or tiles[dest].is_locked:
+		return tiles[start].move( start )
+	swap(start, dest).connect( func():
+		if tiles[start].type == tiles[dest].type:
+			return swap( dest, start )
+		var holes := find_matches_pair( start, dest )
+		if not holes:
+			return swap( dest, start )
+		collapse_array(holes).connect(func():
+			swipe_and_respawn().connect(board_check)
+			)
+		)
 
 
-func _on_tile_drag_ended(direction: Vector2i):
-	var where_to := where_from + direction
-	if not is_in_bounds( where_to ):
-		dragged_tile.move( where_from )
-		return 
-	await swap(where_from, where_to, dragged_tile)
-	if tiles[where_from].type == tiles[where_to].type:
-		swap(where_to, where_from, dragged_tile)
-		return
-	
-	var holes: Array[Vector2i]
-	for coord in [where_from, where_to]:
+func swap( start: Vector2i, dest: Vector2i ) -> Signal:
+	move( start, dest )
+	return move( dest, start )
+
+
+func move(start: Vector2i, dest: Vector2i, tile:=tiles[start]) -> Signal:
+	var on_moved := tile.move(dest)
+	on_moved.connect( func(): tiles[dest]=tile )
+	return on_moved
+
+
+func find_matches_pair( start: Vector2i, dest: Vector2i ) -> Array[Vector2i]:
+	var direction := dest - start
+	var result: Array[Vector2i]
+	for coord in [start, dest]:
 		direction = -direction
-		var matches := find_matches_3_axes(coord, tiles[coord].type, direction)
-		if matches:
-			matches.append(coord)
-			holes.append_array(matches)
-			for coord2 in matches:
-				erase(coord2)
-	if not holes:
-		swap(where_to, where_from, dragged_tile)
+		result.append_array( find_matches_half_plane(coord, tiles[coord].type, direction))
+	return result
+
+
+func _on_tile_drag_ended2( direction: Vector2i ):
+	var where_from: Vector2i
+	var where_to := where_from + direction
+	var dragged_tile := tiles[where_from]
+	if is_out_of_bounds( where_to ):
+		dragged_tile.move( where_from )
 		return
-	
-	while holes:
-		respawn_from_array(holes)
-		await swipe_down(holes)
-		holes = find_matches_on_board()
+	swap(where_from, where_to).connect( func():
+		if tiles[where_from].type == tiles[where_to].type:
+			swap( where_to, where_from )
+			return
+		var on_collapsed: Signal
+		var holes: Array[Vector2i]
+		for coord in [where_from, where_to]:
+			direction = -direction
+			var matches := find_matches_half_plane(coord, tiles[coord].type, direction)
+			if matches:
+				matches.append(coord)
+				holes.append_array(matches)
+				for coord2 in matches:
+					on_collapsed = collapse( coord2 )
+		if not holes:
+			swap(where_to, where_from)
+			return
+		on_collapsed.connect( func():
+			respawn_from_array(holes)
+			swipe_down(holes).connect(board_check)
+			)
+	)
+
+
+func timer(time: float) -> Signal:
+	return get_tree().create_timer(time).timeout
+
+
+func delete_random_tile():
+	collapse( Vector2i(randi()%SIZE.x, randi()%SIZE.y) ).connect(print.bind(\"erasure complete\"))
+
+
+func board_check():
+	var on_collapsed := find_matches_on_board()
+	if not on_collapsed:
+		return
+	on_collapsed.connect(func():
+		swipe_and_respawn().connect(board_check)
+		)
 
 
 func freeze( coord: Vector2i ):
 	prints('coord', coord, 'has been frozen')
 
 
-func erase( coord: Vector2i ):
-	tiles[coord].queue_free()
-	tiles.erase(coord)
+func collapse_array( coords: Array[Vector2i] ) -> Signal:
+	var sgnl: Signal
+	for coord in coords:
+		sgnl = collapse(coord)
+	return sgnl
 
 
-func find_matches_3_axes( coord: Vector2i,
-		type: int, direction: Vector2i ) -> Array[ Vector2i ]:
+func collapse( coord: Vector2i ) -> Signal:
+	var sgnl := tiles[ coord ].collapse()
+	tiles.erase( coord )
+	return sgnl
+
+
+func find_matches_half_plane( 
+		coord: Vector2i, type: int, direction: Vector2i ) -> Array[ Vector2i ]:
 	var result: Array[ Vector2i ]
 	var matches_along := find_matches( coord, type, direction )
 	if matches_along.size() >= 2:
@@ -111,6 +148,8 @@ func find_matches_3_axes( coord: Vector2i,
 	matches_ortho.append_array( find_matches( coord, type, flipped ) )
 	if matches_ortho.size() >= 2:
 		result.append_array( matches_ortho )
+	if result:
+		result.append(coord)
 	return result
 
 
@@ -118,24 +157,20 @@ func find_matches(coord, type, offset) -> Array[Vector2i]:
 	var result: Array[Vector2i]
 	while true:
 		coord += offset
-		if tiles.has(coord) and tiles[coord].type==type:
+		if tiles.has(coord) and tiles[coord].type==type and not tiles[coord].is_locked:
+			#tiles[coord].flash_pink()
 			result.append(coord)
 		else:
 			return result
 	return []
 
 
-func swap( origin: Vector2i, destination: Vector2i, spare := tiles[origin] ) -> Signal:
-	tiles[origin] = tiles[destination].move(origin)
-	tiles[destination] = spare.move(destination)
-	return spare.animation_ended
+func is_out_of_bounds(v: Vector2i) -> bool:
+	return v != v.clamp(START, SIZE-Vector2i.ONE)
 
 
-func is_in_bounds(v: Vector2i) -> bool:
-	return START.x<=v.x and v.x<SIZE.x and START.y<=v.y and v.y<SIZE.y
-
-
-func find_matches_on_board() -> Array[Vector2i]:
+func find_matches_on_board() -> Signal:
+	var on_collapsed: Signal
 	var matches: Array[Vector2i]
 	for coord in tiles:
 		var type := tiles[ coord ].type
@@ -149,82 +184,122 @@ func find_matches_on_board() -> Array[Vector2i]:
 		if ver_matches.size()>1:
 			matches.append_array( ver_matches )
 			matches.append( coord )
-	var rebuilt: Array[Vector2i]
 	for coord in matches:
 		if tiles.has(coord):
-			erase(coord)
-			rebuilt.append(coord)
-	return rebuilt
+			on_collapsed = collapse(coord)
+	return on_collapsed
+
+
+func swipe_down_all():
+	var all_coords: Array[ Vector2i ]
+	for x in SIZE.x:
+		for y in SIZE.y:
+			all_coords.append(Vector2i(x,y))
+	return swipe_down(all_coords)
+
+
+func swipe_and_respawn() -> Signal:
+	var on_swiped: Signal
+	var new_tiles: Dictionary[ Vector2i, Tile ]
+	for col in SIZE.x:
+		var coord := Vector2i( col, START.y )
+		var missing_tiles := 0
+		var offset := Vector2i.ZERO
+		while true:
+			if tiles.has(coord):
+				if is_out_of_bounds(coord):
+					missing_tiles -= 1
+				if tiles[coord].is_locked:
+					missing_tiles = 0
+					offset = Vector2i.ZERO
+				elif missing_tiles:
+					on_swiped = tiles[coord].move(coord+offset)
+				new_tiles[coord+offset] = tiles[coord]
+			else:
+				if not is_out_of_bounds(coord):
+					missing_tiles += 1 # it's a hole
+					offset += Vector2i(0, -1)
+				else:
+					if not missing_tiles:
+						break
+					var new_tile := spawn_tile(coord)
+					on_swiped = new_tile.move(coord+offset)
+					new_tiles[coord+offset] = new_tile
+					missing_tiles -= 1
+			coord += Vector2i(0,1)
+	tiles = new_tiles
+	return on_swiped
 
 
 func swipe_down(holes: Array[Vector2i]) -> Signal:
-	var offsets: Dictionary[Vector2i, Vector2i]
+	var new_coords: Dictionary[Vector2i, Vector2i]
 	for coord in holes: # calculate offsets for all tiles
 		while true:
 			coord += Vector2i(0,1)
 			if tiles.has(coord):
-				offsets[coord] = offsets[coord]-Vector2i(0,1) if offsets.has(coord) else Vector2i(0,-1)
-				freeze(coord)
-			elif not is_in_bounds(coord):
-				break
-	
-	var rebuilt_tiles: Dictionary[Vector2i, Tile]
-	var board_was_rebuilt: Signal
-	for coord in tiles:
-		if offsets.has(coord):
-			var new_coord := coord + offsets[coord]
-			rebuilt_tiles[new_coord] = tiles[coord].move(new_coord)
-			board_was_rebuilt = tiles[coord].animation_ended
-		else:
-			rebuilt_tiles[coord] = tiles[coord]
-	tiles = rebuilt_tiles
-	return board_was_rebuilt
-
-
-func swipe_down2(matches: Array[Vector2i])->Signal:
-	var has_been_swiped: Signal
-	var holes: Array[ Vector2i ]
-	var offsets: Dictionary[ Vector2i, Vector2i ]
-	for coord in matches: #calculate offsets before a swipe down
-		if tiles.has( coord ):
-			holes.append( coord )
-			tiles[coord].queue_free()
-			tiles.erase( coord )
-			while true:
-				coord += Vector2i(0, 1)
-				if not is_in_bounds( coord ):
+				if tiles[coord].is_locked:
 					break
-				offsets[coord] = offsets[coord] - Vector2i(0,1) if offsets.has(coord) else Vector2i(0,-1)
-	var rebuilt_tiles: Dictionary[Vector2i, Tile]
+				new_coords[coord] = new_coords.get(coord, coord) - Vector2i(0,1)
+			elif is_out_of_bounds(coord):
+				spawn_tile(coord)
+				break
+	var on_swiped: Signal
+	var tiles_swiped: Dictionary[Vector2i,Tile]
 	for coord in tiles:
-		if offsets.has(coord):
-			var offset := offsets[coord]
-			rebuilt_tiles[coord+offset] = tiles[coord].move( coord + offset )
-			has_been_swiped = rebuilt_tiles[coord+offset].animation_ended
+		if new_coords.has(coord):
+			tiles_swiped[new_coords[coord]] = tiles[coord]
+			on_swiped = tiles[coord].move(new_coords[coord])
 		else:
-			rebuilt_tiles[coord] = tiles[coord]
-	tiles = rebuilt_tiles
-	return has_been_swiped
+			tiles_swiped[coord] = tiles[coord]
+	tiles = tiles_swiped
+	return on_swiped
 
 
-func swipe_down_no_array()->Signal:
-	var was_swept_down: Signal
-	print('swiping down')
-	var rebuilt_tiles: Dictionary[Vector2i, Tile]
-	for coord in tiles:
-		var offset := Vector2i.ZERO
-		var coord_below := coord + Vector2i(0, -1)
-		while coord_below.y >= 0:
-			if not tiles.has(coord_below):
-				offset += Vector2i(0, -1)
-				prints('found a hole under', coord)
-			coord_below += Vector2i(0, -1)
-		rebuilt_tiles[coord+offset] = tiles[coord].move(coord+offset)
-		was_swept_down = rebuilt_tiles[coord+offset].animation_ended
-		prints('swiping tile', coord, 'to', coord+offset)
-	tiles = rebuilt_tiles
-	print_state()
-	return was_swept_down
+#func swipe_down2(matches: Array[Vector2i])->Signal:
+	#var holes: Array[ Vector2i ]
+	#var offsets: Dictionary[ Vector2i, Vector2i ]
+	#for coord in matches: #calculate offsets before a swipe down
+		#if tiles.has( coord ):
+			#holes.append( coord )
+			#tiles[coord].queue_free()
+			#tiles.erase( coord )
+			#while true:
+				#coord += Vector2i(0, 1)
+				#if is_out_of_bounds( coord ):
+					#break
+				#offsets[coord] = offsets[coord] - Vector2i(0,1) if offsets.has(coord) else Vector2i(0,-1)
+	#var rebuilt_tiles: Dictionary[Vector2i, Tile]
+	#var tween: Tween
+	#for coord in tiles:
+		#if offsets.has(coord):
+			#var offset := offsets[coord]
+			#rebuilt_tiles[coord+offset] = tiles[coord]
+			#tween = tiles[coord].move( coord + offset )
+		#else:
+			#rebuilt_tiles[coord] = tiles[coord]
+	#tiles = rebuilt_tiles
+	#return tween
+
+
+#func swipe_down_no_array()->Signal:
+	#var was_swept_down: Signal
+	#print('swiping down')
+	#var rebuilt_tiles: Dictionary[Vector2i, Tile]
+	#for coord in tiles:
+		#var offset := Vector2i.ZERO
+		#var coord_below := coord + Vector2i(0, -1)
+		#while coord_below.y >= 0:
+			#if not tiles.has(coord_below):
+				#offset += Vector2i(0, -1)
+				#prints('found a hole under', coord)
+			#coord_below += Vector2i(0, -1)
+		#tiles[coord].move(coord+offset)
+		#rebuilt_tiles[coord+offset] = tiles[coord]
+		#was_swept_down = rebuilt_tiles[coord+offset].animation_ended
+		#prints('swiping tile', coord, 'to', coord+offset)
+	#tiles = rebuilt_tiles
+	#print_state()
+	#return was_swept_down
 
 
 func respawn_from_array( coords: Array[ Vector2i ] ):
@@ -248,23 +323,43 @@ func print_state():
 				s += '-'
 		s += '\\n'
 	print(s)
+
+
+func reset_grid():
+	for coord in tiles:
+		tiles[coord].queue_free()
+	tiles.clear()
+	populate_grid()
 "
 
 [node name="Main" type="Node2D"]
 
+[node name="Grid" type="Node2D" parent="."]
+position = Vector2(8, 534)
+scale = Vector2(1, -1)
+script = SubResource("GDScript_7dm0k")
+db = ExtResource("1_ig7tw")
+
 [node name="ButtonReset" type="Button" parent="."]
-offset_left = 14.0
-offset_top = 554.0
-offset_right = 138.0
-offset_bottom = 585.0
+offset_left = 18.0
+offset_top = 17.0
+offset_right = 142.0
+offset_bottom = 48.0
 text = "reset"
 
-[node name="ButtonPrintState" type="Button" parent="."]
+[node name="ButtonTest" type="Button" parent="."]
 visible = false
-offset_left = 628.0
-offset_top = 489.0
-offset_right = 752.0
-offset_bottom = 520.0
+offset_left = 165.0
+offset_top = 17.0
+offset_right = 289.0
+offset_bottom = 48.0
+text = "test"
+
+[node name="ButtonPrintState" type="Button" parent="."]
+offset_left = 382.0
+offset_top = 20.0
+offset_right = 506.0
+offset_bottom = 51.0
 text = "print state"
 
 [node name="ButtonMatch" type="Button" parent="."]
@@ -291,22 +386,8 @@ offset_right = 786.0
 offset_bottom = 164.0
 text = "respawn"
 
-[node name="Grid" type="Node2D" parent="."]
-position = Vector2(0, 540)
-scale = Vector2(1, -1)
-script = SubResource("GDScript_7dm0k")
-scenes = Array[PackedScene]([ExtResource("1_h2yge"), ExtResource("1_0xm2m"), ExtResource("3_h2yge"), ExtResource("4_1bvp3")])
-
-[node name="AdvanceButton" type="Button" parent="."]
-unique_name_in_owner = true
-visible = false
-offset_left = 628.0
-offset_top = 520.0
-offset_right = 752.0
-offset_bottom = 551.0
-text = "advance"
-
 [connection signal="pressed" from="ButtonReset" to="Grid" method="reset_grid"]
+[connection signal="pressed" from="ButtonTest" to="Grid" method="delete_random_tile"]
 [connection signal="pressed" from="ButtonPrintState" to="Grid" method="print_state"]
 [connection signal="pressed" from="ButtonMatch" to="Grid" method="clear_matches"]
 [connection signal="pressed" from="ButtonSwipe" to="Grid" method="swipe_down"]

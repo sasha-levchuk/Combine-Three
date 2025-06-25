@@ -4,14 +4,15 @@
 [ext_resource type="Script" uid="uid://l4q0qo0dc1wo" path="res://tiles/Tile.gd" id="1_mhqsb"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_epqao"]
+bg_color = Color(1, 0.5, 1, 1)
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_to1tp"]
 bg_color = Color(1, 1, 1, 0.25098)
 
 [node name="Button" type="Button"]
 clip_children = 2
-offset_right = 128.0
-offset_bottom = 128.0
+offset_right = 100.0
+offset_bottom = 100.0
 theme_override_styles/focus = ExtResource("1_epqao")
 theme_override_styles/hover = ExtResource("1_epqao")
 theme_override_styles/pressed = ExtResource("1_epqao")
@@ -24,6 +25,24 @@ visible = false
 layout_mode = 0
 offset_right = 64.0
 offset_bottom = 64.0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_epqao")
+
+[node name="ColorDeletion" type="Panel" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 0
+offset_right = 128.0
+offset_bottom = 128.0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_epqao")
+
+[node name="PinkPanel" type="Panel" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 0
+offset_right = 128.0
+offset_bottom = 128.0
 mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_epqao")
 
